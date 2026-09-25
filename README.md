@@ -17,6 +17,28 @@ Claude answers ──Stop────────────────▶ log
 - At most 5 entries per injection, 6000 chars each.
 - Injected text is framed as a colleague's notes, not instructions from you.
 
+## Folder chats
+
+Separate conversations, one brain. A chat can be scoped to a folder of the
+project (say `terraform/`): its own history, the project's shared context.
+
+| Open a folder chat | |
+|---|---|
+| Claude Code | `cd terraform && claude` -- `claude --continue` there resumes it |
+| Cursor | new chat tab, first message `/scope terraform` (`/scope main` to undo; a bare name like `/scope eks` is searched for) |
+
+What a chat's final reply reaches:
+
+| Same folder | Parent folder (e.g. main) | Sibling folder |
+|---|---|---|
+| full | 600-char summary | nothing |
+
+Long-lived knowledge goes in `<folder>/AGENTS.md` (created on first use, with a
+`CLAUDE.md` importing it). Claude Code loads CLAUDE.md files from the start folder
+upward, so a folder chat always sees the root context, and the main chat picks up
+a folder's notes when it works there. Folder chats are told to edit only inside
+their folder, since every chat shares one checkout.
+
 ## OpenSpec auto-setup
 
 `bin/openspec-autoinit` runs at session start in both agents. If the session's
