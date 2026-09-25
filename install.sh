@@ -7,13 +7,13 @@
 #   ./install.sh --remove   remove the hooks again
 set -euo pipefail
 
-BIN="$(cd "$(dirname "$0")" && pwd)/bin/agent-bridge"
+BINDIR="$(cd "$(dirname "$0")" && pwd)/bin"
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 CURSOR_HOOKS="$HOME/.cursor/hooks.json"
 STAMP=$(date +%Y%m%d-%H%M%S)
 REMOVE=false; [ "${1:-}" = "--remove" ] && REMOVE=true
 
-chmod +x "$BIN"
+chmod +x "$BINDIR"/*
 
 # write_json <file> <jq filter> [jq args...]: backup, transform, validate, swap.
 write_json() {
@@ -29,32 +29,33 @@ write_json() {
 # --- Claude Code -------------------------------------------------------------
 write_json "$CLAUDE_SETTINGS" '
   def strip: map(select(any(.hooks[]?; .command | contains("agent-bridge")) | not));
-  def entry($sub): {hooks: [{type: "command", command: "\($bin) \($sub)", timeout: 10}]};
+  def entry($cmd): {hooks: [{type: "command", command: "\($bin)/\($cmd)", timeout: 30}]};
   .hooks //= {} |
-  .hooks.Stop = ((.hooks.Stop // []) | strip) |
-  .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | strip) |
+  reduce ("Stop", "UserPromptSubmit", "SessionStart") as $h
+    (.; .hooks[$h] = ((.hooks[$h] // []) | strip)) |
   if $remove then . else
-    .hooks.Stop += [entry("claude-stop")] |
-    .hooks.UserPromptSubmit += [entry("claude-prompt")]
-  end' --arg bin "$BIN" --argjson remove "$REMOVE"
+    .hooks.Stop += [entry("agent-bridge claude-stop")] |
+    .hooks.UserPromptSubmit += [entry("agent-bridge claude-prompt")] |
+    .hooks.SessionStart += [entry("openspec-autoinit claude")]
+  end' --arg bin "$BINDIR" --argjson remove "$REMOVE"
 
 # --- Cursor ------------------------------------------------------------------
 mkdir -p "$(dirname "$CURSOR_HOOKS")"
 write_json "$CURSOR_HOOKS" '
   def strip: map(select(.command | contains("agent-bridge") | not));
-  def entry($sub): {command: "\($bin) \($sub)", timeout: 10};
+  def entry($cmd): {command: "\($bin)/\($cmd)", timeout: 30};
   .version //= 1 | .hooks //= {} |
   reduce ("afterAgentResponse", "sessionStart", "postToolUse") as $h
     (.; .hooks[$h] = ((.hooks[$h] // []) | strip)) |
   if $remove then . else
-    .hooks.afterAgentResponse += [entry("cursor-response")] |
-    .hooks.sessionStart += [entry("cursor-inject")] |
-    .hooks.postToolUse += [entry("cursor-inject")]
-  end' --arg bin "$BIN" --argjson remove "$REMOVE"
+    .hooks.afterAgentResponse += [entry("agent-bridge cursor-response")] |
+    .hooks.sessionStart += [entry("openspec-autoinit cursor"), entry("agent-bridge cursor-inject")] |
+    .hooks.postToolUse += [entry("agent-bridge cursor-inject")]
+  end' --arg bin "$BINDIR" --argjson remove "$REMOVE"
 
 if $REMOVE; then echo "agent-bridge hooks removed."; else
   echo "agent-bridge hooks installed:"
-  echo "  Claude Code: $CLAUDE_SETTINGS (Stop, UserPromptSubmit)"
+  echo "  Claude Code: $CLAUDE_SETTINGS (Stop, UserPromptSubmit, SessionStart)"
   echo "  Cursor:      $CURSOR_HOOKS (afterAgentResponse, sessionStart, postToolUse)"
   echo "Restart Claude Code sessions and reload the Cursor window to pick them up."
 fi

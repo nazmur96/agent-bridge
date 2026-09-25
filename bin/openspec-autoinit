@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# openspec-autoinit: set up OpenSpec the first time an agent opens a git repo.
+#
+# Runs as the session-start hook of Claude Code and Cursor. A session whose
+# folder is not a git repo (plain chat from ~) is left alone. In a repo with no
+# openspec/ yet, runs `openspec init --tools claude,cursor` and tells the agent
+# to offer filling in the project context -- nothing is committed here.
+#
+#   openspec-autoinit claude|cursor     (hook JSON on stdin)
+#
+# Skip a repo: add its absolute toplevel path, one per line, to
+#   ~/.config/agent-bridge/openspec-ignore
+set -uo pipefail
+
+agent=${1:-claude}
+input=$(cat)
+case "$agent" in
+  claude) dir=${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd // empty' <<<"$input")} ;;
+  cursor) dir=$(jq -r '.workspace_roots[0] // empty' <<<"$input"); dir=${dir#file://} ;;
+  *) echo "usage: $0 claude|cursor" >&2; exit 1 ;;
+esac
+
+# Hand text to the agent in its hook's output format.
+say() {
+  case "$agent" in
+    claude) jq -n --arg c "$1" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $c}}' ;;
+    cursor) jq -n --arg c "$1" '{additional_context: $c}' ;;
+  esac
+  exit 0
+}
+quiet() { [ "$agent" = cursor ] && echo '{}'; exit 0; }
+
+[ -n "$dir" ] && [ -d "$dir" ] || quiet
+root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || quiet
+[ "$root" != "$HOME" ] && [ -w "$root" ] || quiet
+command -v openspec >/dev/null || quiet
+ignore="${XDG_CONFIG_HOME:-$HOME/.config}/agent-bridge/openspec-ignore"
+[ -f "$ignore" ] && grep -qxF "$root" "$ignore" && quiet
+
+config="$root/openspec/config.yaml"
+created=false
+if [ ! -f "$config" ]; then
+  # Both agents can open the same repo at once; only one should run init.
+  locks="${XDG_STATE_HOME:-$HOME/.local/state}/agent-bridge/locks"
+  mkdir -p "$locks"
+  exec 9>"$locks/$(printf '%s' "$root" | tr '/' '-').lock"
+  flock 9
+  if [ ! -f "$config" ]; then
+    export OPENSPEC_TELEMETRY=0
+    # init reads its command set from OpenSpec's global config; pin it here so
+    # this committed script, not an untracked file, decides it. core + verify,
+    # the step the Cursor reviewer uses.
+    openspec config set profile custom >/dev/null 2>&1
+    openspec config set workflows '["propose","explore","apply","update","sync","archive","verify"]' >/dev/null 2>&1
+    openspec init --tools claude,cursor --no-animation "$root" >/dev/null 2>&1 || quiet
+    created=true
+  fi
+fi
+
+usage='Use OpenSpec for work that spans sessions, changes behaviour, or needs a reviewer (propose -> user approves -> apply -> verify -> archive). Small fixes do not need it.'
+
+if $created; then
+  say "[openspec-autoinit] OpenSpec was just set up in this repo ($root): openspec/, .claude/, .cursor/ -- uncommitted. The project context in openspec/config.yaml is empty. Early in this session, offer the user to fill its context: block from the repo (stack, conventions, how to run and test) and to commit the setup; do neither without asking. The /opsx commands load on the next session start; until then the skills are readable under .claude/skills/openspec-*/. $usage"
+elif ! grep -q '^context:' "$config"; then
+  say "[openspec-autoinit] This repo uses OpenSpec but openspec/config.yaml has no context: block yet. Offer once to fill it from the repo. $usage"
+fi
+quiet

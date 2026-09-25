@@ -17,10 +17,22 @@ Claude answers ──Stop────────────────▶ log
 - At most 5 entries per injection, 6000 chars each.
 - Injected text is framed as a colleague's notes, not instructions from you.
 
+## OpenSpec auto-setup
+
+`bin/openspec-autoinit` runs at session start in both agents. If the session's
+folder is a git repo without `openspec/`, it runs
+`openspec init --tools claude,cursor` (core commands + `verify`) and tells the
+agent to offer filling in `openspec/config.yaml`'s `context:` and committing.
+It never commits. Until `context:` exists, each session gets a one-line reminder.
+
+- Not a git repo (e.g. a plain chat from `~`), or `~` itself: does nothing.
+- Skip a repo: add its toplevel path to `~/.config/agent-bridge/openspec-ignore`.
+- New `/opsx` commands load on the *next* session start in that repo.
+
 ## Install / remove
 
 ```sh
-./install.sh            # adds hooks to ~/.claude/settings.json and ~/.cursor/hooks.json
+./install.sh            # adds all hooks to ~/.claude/settings.json and ~/.cursor/hooks.json
 ./install.sh --remove   # takes them out again
 ```
 
