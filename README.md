@@ -25,7 +25,7 @@ project (say `terraform/`): its own history, the project's shared context.
 | Open a folder chat | |
 |---|---|
 | Claude Code | `cd terraform && claude` -- `claude --continue` there resumes it |
-| Cursor | new chat tab, first message `/scope terraform` (`/scope main` to undo; a bare name like `/scope eks` is searched for) |
+| Cursor | new chat tab whose first message @-mentions the folder (`@terraform why ...`), or `/scope terraform` (`/scope main` to undo; a bare name like `/scope eks` is searched for) |
 
 What a chat's final reply reaches:
 

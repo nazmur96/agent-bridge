@@ -14,7 +14,8 @@
 #
 # Opening a folder chat:
 #   Claude Code  cd <folder> && claude        (claude --continue resumes it)
-#   Cursor       new chat tab, first message: /scope <folder>   (/scope main to undo)
+#   Cursor       new chat whose first message @-mentions the folder, or
+#                /scope <folder> (/scope main to undo)
 # A folder chat gets <folder>/AGENTS.md for its notes, imported by a CLAUDE.md
 # there, so Claude's native CLAUDE.md layering carries it to every session.
 #
@@ -213,6 +214,32 @@ resolve_scope() {
   esac
 }
 
+# mentioned_folder <root> <input> <prompt>: the one project folder a prompt
+# @-mentions, or fail. Candidates are every string in Cursor's attachments
+# (whatever shape they take) plus @tokens in the text; only directories inside
+# the project count, and two different folders count as no answer.
+mentioned_folder() {
+  local root=$1 c rel found=
+  # "A <path>" = attachment value, exact paths only; "T <word>" = typed @word,
+  # which may also be a bare folder name found by search.
+  while read -r kind c; do
+    c=${c#file://}; c=${c%/}
+    [ -n "$c" ] || continue
+    case "$c" in
+      /*) [ -d "$c" ] || continue; rel=$(scope_of "$root" "$c") ;;
+      ..|../*|*/..|*/../*) continue ;;
+      *) if [ -d "$root/$c" ]; then rel=${c#./}
+         elif [ "$kind" = T ]; then rel=$(resolve_scope "$root" "$c") || continue
+         else continue; fi ;;
+    esac
+    [ "$rel" != . ] || continue
+    if [ -z "$found" ]; then found=$rel
+    elif [ "$found" != "$rel" ]; then return 1; fi
+  done < <(jq -r '.attachments // [] | .. | strings | "A " + .' <<<"$2"
+           grep -oE '(^|[[:space:]])@[A-Za-z0-9._/-]+' <<<"$3" | sed 's/^[[:space:]]*@/T /')
+  [ -n "$found" ] && echo "$found"
+}
+
 cmd=${1:-}; shift || true
 case "$cmd" in
   claude-start)
@@ -241,7 +268,20 @@ case "$cmd" in
     input=$(cat); cursor_ctx
     printf '%s' "$input" >"$sd/last-cursor-prompt.json"   # for checking the hook contract
     prompt=$(jq -r '.prompt // ""' <<<"$input")
+    first=false
+    if [ -n "$cid" ]; then
+      mkdir -p "$sd/scopes"
+      [ -e "$sd/scopes/$cid.seen" ] || { first=true; touch "$sd/scopes/$cid.seen"; }
+    fi
     if [[ ! $prompt =~ ^[[:space:]]*/scope([[:space:]]+([^[:space:]]+))?[[:space:]]*$ ]]; then
+      # @folder in a new chat's first message scopes it, then the prompt goes
+      # through as usual.
+      if $first && [ "$scope" = . ] && git -C "$root" rev-parse >/dev/null 2>&1 &&
+         target=$(mentioned_folder "$root" "$input" "$prompt"); then
+        echo "$target" >"$sd/scopes/$cid"
+        touch "$sd/scopes/$cid.intro"
+        ensure_notes "$root" "$target"
+      fi
       echo '{"continue": true}'; exit 0
     fi
     arg=${BASH_REMATCH[2]:-}
