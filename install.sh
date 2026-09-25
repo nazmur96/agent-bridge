@@ -45,10 +45,11 @@ write_json "$CURSOR_HOOKS" '
   def strip: map(select(.command | contains("agent-bridge") | not));
   def entry($cmd): {command: "\($bin)/\($cmd)", timeout: 30};
   .version //= 1 | .hooks //= {} |
-  reduce ("beforeSubmitPrompt", "afterAgentResponse", "sessionStart", "postToolUse") as $h
+  reduce ("beforeSubmitPrompt", "beforeMCPExecution", "afterAgentResponse", "sessionStart", "postToolUse") as $h
     (.; .hooks[$h] = ((.hooks[$h] // []) | strip)) |
   if $remove then . else
     .hooks.beforeSubmitPrompt += [entry("agent-bridge cursor-prompt")] |
+    .hooks.beforeMCPExecution += [entry("mcp-guard")] |
     .hooks.afterAgentResponse += [entry("agent-bridge cursor-response")] |
     .hooks.sessionStart += [entry("openspec-autoinit cursor"), entry("agent-bridge cursor-inject")] |
     .hooks.postToolUse += [entry("agent-bridge cursor-inject")]
@@ -57,6 +58,6 @@ write_json "$CURSOR_HOOKS" '
 if $REMOVE; then echo "agent-bridge hooks removed."; else
   echo "agent-bridge hooks installed:"
   echo "  Claude Code: $CLAUDE_SETTINGS (Stop, UserPromptSubmit, SessionStart)"
-  echo "  Cursor:      $CURSOR_HOOKS (beforeSubmitPrompt, afterAgentResponse, sessionStart, postToolUse)"
+  echo "  Cursor:      $CURSOR_HOOKS (beforeSubmitPrompt, beforeMCPExecution, afterAgentResponse, sessionStart, postToolUse)"
   echo "Restart Claude Code sessions and reload the Cursor window to pick them up."
 fi

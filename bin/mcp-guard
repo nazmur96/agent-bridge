@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# mcp-guard: Cursor beforeMCPExecution hook that refuses destructive
+# agent-brain (Graphiti) tools. Cursor's mcp.json has no per-tool deny list;
+# this is the equivalent of Claude Code's permissions.deny.
+#
+# Only blocks. Every other call gets an empty answer, so Cursor's own approval
+# flow applies unchanged -- this hook never auto-approves anything.
+#
+# Tool names may arrive bare (clear_graph) or prefixed with the server, so
+# they are matched on the suffix.
+set -uo pipefail
+
+BLOCKED='clear_graph|delete_episode|delete_entity_edge'
+
+input=$(cat)
+tool=$(jq -r '.tool_name // empty' <<<"$input")
+
+if [[ $tool =~ (^|[^A-Za-z0-9])($BLOCKED)$ ]]; then
+  jq -n --arg t "${BASH_REMATCH[2]}" '{
+    permission: "deny",
+    user_message: "Blocked \($t): it deletes data from agent-brain. Run it by hand if you really mean it.",
+    agent_message: "\($t) is blocked by policy because it deletes shared memory. Do not retry or work around it; tell the user what you wanted to delete and why."
+  }'
+else
+  echo '{}'
+fi

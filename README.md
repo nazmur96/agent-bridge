@@ -51,6 +51,15 @@ It never commits. Until `context:` exists, each session gets a one-line reminder
 - Skip a repo: add its toplevel path to `~/.config/agent-bridge/openspec-ignore`.
 - New `/opsx` commands load on the *next* session start in that repo.
 
+## MCP guard (Cursor)
+
+`bin/mcp-guard` runs before every MCP tool call in Cursor and denies the
+destructive Graphiti tools -- `clear_graph`, `delete_episode`,
+`delete_entity_edge` -- whatever server prefix they carry. Anything else gets
+no decision, so Cursor's normal approval applies; it never auto-approves.
+It's Cursor's stand-in for Claude Code's `permissions.deny`, which covers the
+same tools on the Claude side.
+
 ## Install / remove
 
 ```sh
